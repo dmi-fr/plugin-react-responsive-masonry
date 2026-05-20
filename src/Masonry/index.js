@@ -4,12 +4,54 @@ import React from "react"
 class Masonry extends React.Component {
   constructor() {
     super()
-    this.state = {columns: [], childRefs: [], hasDistributed: false}
+    this.containerRef = React.createRef()
+    this.lastWidth = 0
+    this.state = {columns: [], childRefs: []}
   }
 
-  componentDidUpdate() {
-    if (!this.state.hasDistributed && !this.props.sequential)
+  componentDidMount() {
+    this.containerObserver = new ResizeObserver(([entry]) => {
+      if (this.props.sequential) return
+
+      const width = Math.round(entry.contentRect.width)
+
+      if (Math.abs(width - this.lastWidth) < 200) {
+        return
+      }
+
+      this.lastWidth = width
+
       this.distributeChildren()
+    })
+
+    this.childObserver = new ResizeObserver(() => {
+      if (this.props.sequential) return
+
+      const isReady = this.state.childRefs.every(
+        (ref) => ref.current && ref.current.getBoundingClientRect().height > 0
+      )
+
+      if (isReady) {
+        this.distributeChildren()
+      }
+    })
+
+    if (this.containerRef.current) {
+      this.lastWidth = this.containerRef.current.getBoundingClientRect().width
+
+      this.containerObserver.observe(this.containerRef.current)
+    }
+
+    this.state.childRefs.forEach((ref) => {
+      if (ref.current) {
+        this.childObserver.observe(ref.current)
+      }
+    })
+  }
+
+  componentWillUnmount() {
+    this.containerObserver && this.containerObserver.disconnect()
+    this.childObserver && this.childObserver.disconnect()
   }
 
   static getDerivedStateFromProps(props, state) {
@@ -19,29 +61,23 @@ class Masonry extends React.Component {
     return {
       ...Masonry.getEqualCountColumns(children, columnsCount),
       children,
-      hasDistributed: false,
     }
-  }
-
-  shouldComponentUpdate(nextProps) {
-    return (
-      nextProps.children !== this.state.children ||
-      nextProps.columnsCount !== this.props.columnsCount
-    )
   }
 
   distributeChildren() {
     const {children, columnsCount} = this.props
     const columnHeights = Array(columnsCount).fill(0)
 
-    const isReady = this.state.childRefs.every(
-      (ref) => ref.current.getBoundingClientRect().height
-    )
-
-    if (!isReady) return
-
     const columns = Array.from({length: columnsCount}, () => [])
     let validIndex = 0
+
+    if (
+      !this.state.childRefs[validIndex] ||
+      !this.state.childRefs[validIndex].current
+    ) {
+      return
+    }
+
     React.Children.forEach(children, (child) => {
       if (child && React.isValidElement(child)) {
         // .current is undefined if ref was passed to a functional component without forwardRef
@@ -58,7 +94,7 @@ class Masonry extends React.Component {
       }
     })
 
-    this.setState((p) => ({...p, columns, hasDistributed: true}))
+    this.setState((p) => ({...p, columns}))
   }
 
   static getEqualCountColumns(children, columnsCount) {
@@ -114,6 +150,7 @@ class Masonry extends React.Component {
     return React.createElement(
       containerTag,
       {
+        ref: this.containerRef,
         style: {
           display: "flex",
           flexDirection: "row",
